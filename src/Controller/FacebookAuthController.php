@@ -9,6 +9,7 @@ use Drupal\social_auth_facebook\FacebookAuthManager;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 use Drupal\Core\Routing\TrustedRedirectResponse;
 use Drupal\social_auth_facebook\FacebookAuthPersistentDataHandler;
+use Drupal\social_auth\Entity\SocialAuth;
 
 /**
  * Returns responses for Simple FB Connect module routes.
@@ -97,7 +98,7 @@ class FacebookAuthController extends ControllerBase {
     }
 
     // Facebook service was returned, inject it to $fbManager.
-    $this->facebookManager->setFacebookService($facebook);
+    $this->facebookManager->setClient($facebook);
 
     // Generates the URL where the user will be redirected for FB login.
     // If the user did not have email permission granted on previous attempt,
@@ -125,14 +126,7 @@ class FacebookAuthController extends ControllerBase {
       return $this->redirect('user.login');
     }
 
-    // Facebook service was returned, inject it to $fbManager.
-    $this->facebookManager->setFacebookService($facebook);
-
-    // Reads user's access token from Facebook.
-    if (!$access_token = $this->facebookManager->getAccessTokenFromFb()) {
-      drupal_set_message($this->t('Facebook login failed.'), 'error');
-      return $this->redirect('user.login');
-    }
+    $this->facebookManager->setClient($facebook)->authenticate();
 
     // Checks that user authorized our app to access user's email address.
     if (!$this->facebookManager->checkPermission('email')) {
@@ -142,7 +136,7 @@ class FacebookAuthController extends ControllerBase {
     }
 
     // Gets user's FB profile from Facebook API.
-    if (!$fb_profile = $this->facebookManager->getFbProfile()) {
+    if (!$fb_profile = $this->facebookManager->getUserInfo()) {
       drupal_set_message($this->t('Facebook login failed, could not load Facebook profile. Contact site administrator.'), 'error');
       return $this->redirect('user.login');
     }
@@ -154,10 +148,22 @@ class FacebookAuthController extends ControllerBase {
     }
 
     // Saves access token to session so that event subscribers can call FB API.
-    $this->persistentDataHandler->set('access_token', $access_token);
+    $this->persistentDataHandler->set('access_token', $this->facebookManager->getAccessToken());
+
+    $user_info= SocialAuth::create([
+        // Required Fields
+        'user_id' => 2,
+        'type' => 'facebook',
+        'social_media_id' => $fb_profile->getField('id'),
+    ]);
+    $user_info->save();
+
+
+
 
     // If user information could be retrieved.
     return $this->userManager->authenticateUser($email, $fb_profile->getField('name'), $fb_profile->getField('id'), $this->facebookManager->getFbProfilePicUrl());
+
   }
 
 }
